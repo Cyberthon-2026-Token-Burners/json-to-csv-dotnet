@@ -4,11 +4,12 @@
 # System Architecture State
 
 ## Overview
-The `JsonToCsv` utility is a lightweight, stateless .NET 10 command-line application designed to translate structured JSON datasets into tabular CSV outputs. By using standard streams and modular parameter validation, the utility guarantees reliable processing suitable for automated pipelines and interactive CLI environments.
+The `JsonToCsv` utility is a lightweight, stateless .NET 10 command-line application designed to translate structured JSON datasets into tabular CSV outputs. By using standard streams, modular parameter validation, and recursive flattening engines, the utility guarantees reliable processing suitable for automated pipelines and interactive CLI environments.
 
 ## Active Components
 - **CommandLineParser (`CliOptions`)**: Represents the structured CLI schema. Responsible for binding console arguments, verifying parameter constraints, and translating escape characters (e.g. converting string literal `\t` into physical tab character `\t`).
 - **Core Execution Entrypoint (`Program`)**: Coordinates validation of command line arguments, handles file presence checking, triggers conversion, maps runtime errors to standard error stream (`stderr`), and returns execution status codes.
+- **Stateless JSON Flattener (`JsonFlattener`)**: Recursively processes a hierarchical `JsonElement` structure, generating flat, dot-notated string representation key-value pairs suitable for flat tabular projection.
 
 ## Public Interfaces & Signatures
 
@@ -34,11 +35,21 @@ public class Program
 {
     public static int Main(string[] args);
 }
+
+public static class JsonFlattener
+{
+    public static System.Collections.Generic.Dictionary<string, string> Flatten(System.Text.Json.JsonElement element, string prefix = "");
+}
 ```
 
 ## Design Decisions & Patterns
 - **Separation of Concerns**: Program validation and parsing logic are entirely decoupled from CLI routing. This ensures the parsing logic can be thoroughly unit-tested without relying on the physical standard input/output/error streams.
-- **Stateless Validation Execution**: No persistent storage, state machines, or global singletons are used during parsing, avoiding side-effects across test suites.
+- **Stateless Recursive JSON Flattening**: The flattener is entirely stateless and functional with zero side-effects. It maps deeply nested DOM components to a single-level dictionary of dot-notated string properties.
+- **Bounded Recursion Safeguard**: To prevent `StackOverflowException` vectors when handling complex or deeply-nested payloads, the recursion engine monitors runtime depth. If nesting depth exceeds 100 levels, an `ArgumentException` is immediately thrown.
+- **Tabular Mapping Integrity**:
+  - Empty objects (`{}`), empty arrays (`[]`), and null/undefined elements map directly to empty string properties (`""`).
+  - Primitive arrays (e.g. `["admin", "user"]`) serialize to compact, standard, non-spaced JSON representation strings inside the output map.
+  - Non-primitive arrays (e.g., arrays containing nested JSON objects or child arrays) are structurally unmappable to standard tabular structures and strictly raise an `ArgumentException`.
 - **Exit Code Conventions**: Strictly follows Unix CLI conventions, returning `0` on successful operation and `1` on invalid arguments, parsing failure, or execution exceptions.
 
 ## Non-Functional Invariants
