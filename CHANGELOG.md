@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Implemented `CsvWriter` static class with streaming `Write` method supporting custom delimiters and strict character escaping rules.
+- Implemented standard RFC 4180-compliant escaping logic inside `CsvWriter` (wrapping values containing delimiters, double quotes, or line-break characters, and escaping internal double quotes by doubling them).
+- Configured sequentially-aligned processing for heterogeneous records, representing missing properties as unquoted empty fields.
+- Enforced strict up-front parameter verification, throwing `ArgumentNullException` on null arguments or null collection items before writing content.
 - Implemented `JsonFlattener` static class to map recursive nested JSON DOM documents to flat dot-notated string key-value maps.
 - Integrated explicit recursion depth validation capped at 100 levels to prevent `StackOverflowException`.
 - Added support for compact serialization of primitive arrays inside JSON objects using standard serializers.
