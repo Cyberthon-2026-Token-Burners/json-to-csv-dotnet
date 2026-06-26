@@ -4,13 +4,14 @@
 # System Architecture State
 
 ## Overview
-The `JsonToCsv` utility is a lightweight, stateless .NET 10 command-line application designed to translate structured JSON datasets into tabular CSV outputs. By using standard streams, modular parameter validation, recursive flattening engines, and a stateless stream-based CSV writer, the utility guarantees reliable processing suitable for automated pipelines and interactive CLI environments.
+The `JsonToCsv` utility is a lightweight, high-performance, stateless .NET 10 command-line application designed to translate structured JSON datasets into tabular CSV outputs. By using stream-based processing, structured syntax and schema validation, recursive flattening engines, and robust command routing, the utility guarantees reliable processing suitable for automation pipelines, scripts, and interactive console sessions.
 
 ## Active Components
-- **CommandLineParser (`CliOptions`)**: Represents the structured CLI schema. Responsible for binding console arguments, verifying parameter constraints, and translating escape characters (e.g. converting string literal `\t` into physical tab character `\t`).
-- **Core Execution Entrypoint (`Program`)**: Coordinates validation of command line arguments, handles file presence checking, triggers conversion, maps runtime errors to standard error stream (`stderr`), and returns execution status codes.
-- **Stateless JSON Flattener (`JsonFlattener`)**: Recursively processes a hierarchical `JsonElement` structure, generating flat, dot-notated string representation key-value pairs suitable for flat tabular projection.
-- **Stateless CSV Writer (`CsvWriter`)**: Accepts a stream of flattened dictionaries and standardizes them into tabular rows emitted directly to a text writer stream. Handles custom column separators, schema mismatches, and robust character escaping dynamically.
+- **CommandLineParser (`CliOptions`)**: Represents the structured CLI schema. Responsible for parsing arguments, binding parameter constraints, and translating escape characters (such as string-literal `\t` into real tab characters).
+- **Core Execution Entrypoint (`Program`)**: Coordinates CLI routing, handles error reporting to standard error (`stderr`), and returns exit codes compliant with standard Unix conventions (`0` for success, `1` for failure).
+- **Orchestration Layer (`JsonConverterService`)**: Performs file-existence and structural integrity checks, reads the source JSON, parses elements into a high-performance DOM using `System.Text.Json`, flattens components, writes CSV lines atomically, and cleans up physical files in the event of failure.
+- **Stateless JSON Flattener (`JsonFlattener`)**: Recursively processes complex hierarchical elements, mapping deeply nested values to dot-notated tabular property paths.
+- **Stateless CSV Writer (`CsvWriter`)**: Emits formatted stream blocks directly to standard text writers. Implements custom delimiter separation, alignment of jagged schemas, and strict RFC 4180-compliant cell quoting.
 
 ## Public Interfaces & Signatures
 
@@ -37,6 +38,11 @@ public class Program
     public static int Main(string[] args);
 }
 
+public static class JsonConverterService
+{
+    public static void Convert(string inputPath, string outputPath, char delimiter);
+}
+
 public static class JsonFlattener
 {
     public static System.Collections.Generic.Dictionary<string, string> Flatten(System.Text.Json.JsonElement element, string prefix = "");
@@ -53,20 +59,17 @@ public static class CsvWriter
 ```
 
 ## Design Decisions & Patterns
-- **Separation of Concerns**: Program validation and parsing logic are entirely decoupled from CLI routing. This ensures the parsing logic can be thoroughly unit-tested without relying on physical standard input/output/error streams.
-- **Stateless Recursive JSON Flattening**: The flattener is entirely stateless and functional with zero side-effects. It maps deeply nested DOM components to a single-level dictionary of dot-notated string properties.
-- **Bounded Recursion Safeguard**: To prevent `StackOverflowException` vectors when handling complex or deeply-nested payloads, the recursion engine monitors runtime depth. If nesting depth exceeds 100 levels, an `ArgumentException` is immediately thrown.
-- **Tabular Mapping Integrity**:
-  - Empty objects (`{}`), empty arrays (`[]`), and null/undefined elements map directly to empty string properties (`""`).
-  - Primitive arrays (e.g. `["admin", "user"]`) serialize to compact, standard, non-spaced JSON representation strings inside the output map.
-  - Non-primitive arrays (e.g., arrays containing nested JSON objects or child arrays) are structurally unmappable to standard tabular structures and strictly raise an `ArgumentException`.
-- **Stateless O(1) CSV Streaming**: `CsvWriter` handles data writing in a single streaming pass without retaining prior records in RAM. This meets low footprint requirements for large files.
-- **RFC 4180 Escaping Implementation**: Handles field quoting dynamically when the selected delimiter, standard double quotes (`"`), carriage returns (`\r`), or line feeds (`\n`) are detected. Internal double quotes are escaped by doubling them (`""`).
-- **Mismatched / Non-uniform Row Alignment**: When writing records with heterogeneous schemas, missing headers result in empty output cells (e.g., `,` with no outer quotes) to align tabular values with their corresponding columns.
-- **Eager Parameter Validation**: Strict null checks on parameters (records, headers, and writers) throw a direct `ArgumentException` or `ArgumentNullException` immediately, ensuring stream pipelines are never partially written when invoked with invalid arguments.
-- **Exit Code Conventions**: Strictly follows Unix CLI conventions, returning `0` on successful operation and `1` on invalid arguments, parsing failure, or execution exceptions.
+- **Orchestration Layer Separation**: All business and translation-specific orchestration resides inside `JsonConverterService`. Decoupling file routing and parsing details from standard CLI loops ensures testability and clean domain execution.
+- **Atomic Operations & Error Recovery**: The tool enforces transaction-like operations on file writes. If structural parsing, flattening, or stream writes fail mid-process, any partial file output produced during the execution is cleanly deleted to prevent filesystem corruption.
+- **Structural and Syntax Sanity Checking**: 
+  - Verifies input file presence prior to producing any stream resources.
+  - Validates that the input's root is structurally sound. Supported roots are restricted to individual JSON objects or arrays of JSON objects. Primitive JSON arrays (e.g. `["apple", "banana"]`) immediately raise `InvalidOperationException`.
+  - Handles physical `JsonException` occurrences, extracting line numbers and byte indexes to report precise formatting diagnostics.
+- **Stateless Recursive JSON Flattening**: Deeply nested values are mapped to flat dot-notated string representation keys in a functional, stateless manner. A recursion depth limit of 100 protects the host environment from stack overflow vectors.
+- **RFC 4180 Escaping Rules**: Cells are automatically quoted when containing commas, carriage returns, newlines, or double quotes. Internal double quotes are escaped by doubling them (`""`). Missing headers inside heterogeneous data blocks align cleanly to unquoted empty fields.
 
 ## Non-Functional Invariants
-- **Single UTF-16 Delimiter Isolation**: The resolved delimiter must compile strictly into a single UTF-16 character block. Valid multi-character options are restricted specifically to common escaped literals (`\t`, `\n`, `\r`). Multi-character custom symbols (e.g., `abc`) must be rejected prior to starting processing.
-- **Memory Efficiency**: The system maintains physical isolation from frameworks' inner dependency pools, utilizing standard .NET `<PackageReference>` structures without pinning runtime-provided platform assemblies, preventing warning `NU1510` in .NET 10 environments.
-- **Test Isolation**: Complete separation of production assemblies (`src/`) and testing suites (`tests/`), maintaining explicit solution-level visibility via `<InternalsVisibleTo>` declarations.
+- **Deterministic Execution**: Program stays stateless. No databases, persistent states, API dependencies, or multi-threaded background managers are involved.
+- **Memory Efficiency**: Peak memory usage must remain below 150MB when transforming a 50MB source dataset. Process duration remains below 3 seconds for a 100,000-row (~20MB) dataset.
+- **Single UTF-16 Delimiter Isolation**: The resolved delimiter must map strictly into a single UTF-16 character. Multi-character inputs except supported whitespace sequences (`\t`, `\n`, `\r`) are rejected immediately.
+- **Zero External Warning Interferences**: Strict adherence to NuGet dependency hierarchies ensures compile-time builds produce no workspace warnings or conflict markers.
