@@ -1,0 +1,102 @@
+name: Build, Test, and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup (Restore Dependencies)
+        run: for i in 1 2 3; do dotnet restore --disable-parallel && exit 0; sleep 5; done; exit 1
+
+      - name: Build
+        run: dotnet build
+
+      - name: Run Tests
+        run: dotnet test
+
+      - name: Run Lint
+        run: |
+          ws=$(ls *.slnx *.sln 2>/dev/null | head -n1); ws=${ws:-$(ls *.csproj 2>/dev/null | head -n1)}; if [ -z "$ws" ]; then echo 'no .slnx/.sln/.csproj at repo root — nothing to verify'; exit 0; fi; dotnet format "$ws" --verify-no-changes --no-restore
+
+  release:
+    needs: build-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup (Restore Dependencies)
+        run: for i in 1 2 3; do dotnet restore --disable-parallel && exit 0; sleep 5; done; exit 1
+
+      - name: Publish Binaries
+        run: |
+          dotnet publish -c Release -r win-x64 --self-contained -o ./publish/win-x64 src/JsonToCsv/JsonToCsv.csproj
+          dotnet publish -c Release -r linux-x64 --self-contained -o ./publish/linux-x64 src/JsonToCsv/JsonToCsv.csproj
+          dotnet publish -c Release -r osx-x64 --self-contained -o ./publish/osx-x64 src/JsonToCsv/JsonToCsv.csproj
+          cd publish
+          zip -r ../JsonToCsv-win-x64.zip win-x64
+          zip -r ../JsonToCsv-linux-x64.zip linux-x64
+          zip -r ../JsonToCsv-osx-x64.zip osx-x64
+
+      - name: Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            JsonToCsv-win-x64.zip
+            JsonToCsv-linux-x64.zip
+            JsonToCsv-osx-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update README with release URL
+        run: |
+          RELEASE_URL="${{ steps.release.outputs.url }}"
+          perl -i -0pe \
+            "s|<!-- RELEASE_URL_START -->.*?<!-- RELEASE_URL_END -->|<!-- RELEASE_URL_START -->\n**Latest release:** [$RELEASE_URL]($RELEASE_URL)\n<!-- RELEASE_URL_END -->|s" \
+            README.md || true
+          if ! grep -q "RELEASE_URL_START" README.md; then
+            printf '\n## 📦 Latest Release\n<!-- RELEASE_URL_START -->\n**Latest release:** [%s](%s)\n<!-- RELEASE_URL_END -->\n' \
+              "$RELEASE_URL" "$RELEASE_URL" >> README.md
+          fi
+          # Nothing changed → nothing to push (and no re-trigger loop).
+          if git diff --quiet README.md; then
+            echo "README release URL already current; nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: update latest release URL [skip ci]"
+          # HEAD:<default-branch> pushes the tag's detached-HEAD commit straight to the branch ref —
+          # this is what avoids "fatal: You are not currently on a branch". Requires the
+          # github-actions app to have an "Allow bypass" on the protected default branch.
+          git push origin HEAD:"${{ github.event.repository.default_branch }}"
