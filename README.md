@@ -5,6 +5,9 @@ JsonToCsv is a high-performance, stateless .NET 10 command-line tool that parses
 ## Features
 - **High-Performance JSON Flattening**: Recursively traverses deep hierarchical JSON documents and flattens them to standard dot-notated tabular maps.
 - **Safe Deep-Recursion Protection**: Monitors recursion stack bounds explicitly, safely processing up to 100 levels of object nesting and throwing clean errors instead of experiencing a StackOverflowException.
+- **Stateless CSV Writer**: Implements dynamic stream-based CSV writing with strict O(1) memory overhead, directly serializing flattened records to a text writer stream.
+- **RFC 4180-Compliant Escaping**: Handles complex cell formatting gracefully (including embedded custom delimiters, line breaks, and internal double quotes).
+- **Non-Uniform Record Support**: Aligns jagged datasets sequentially with omitted key properties rendering correctly as empty table columns.
 - **Custom Delimiter Selection**: Supports custom column delimiters such as commas, semicolons, and escape sequences (e.g., tab character `\t`).
 - **Comprehensive CLI Parsing**: Leverages a structured, declarative argument framework via `CommandLineParser`.
 - **Pipeline Friendly**: Returns standard exit codes and writes descriptive error diagnostics directly to standard error (`stderr`).

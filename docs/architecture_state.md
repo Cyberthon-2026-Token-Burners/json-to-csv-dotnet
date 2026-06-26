@@ -4,12 +4,13 @@
 # System Architecture State
 
 ## Overview
-The `JsonToCsv` utility is a lightweight, stateless .NET 10 command-line application designed to translate structured JSON datasets into tabular CSV outputs. By using standard streams, modular parameter validation, and recursive flattening engines, the utility guarantees reliable processing suitable for automated pipelines and interactive CLI environments.
+The `JsonToCsv` utility is a lightweight, stateless .NET 10 command-line application designed to translate structured JSON datasets into tabular CSV outputs. By using standard streams, modular parameter validation, recursive flattening engines, and a stateless stream-based CSV writer, the utility guarantees reliable processing suitable for automated pipelines and interactive CLI environments.
 
 ## Active Components
 - **CommandLineParser (`CliOptions`)**: Represents the structured CLI schema. Responsible for binding console arguments, verifying parameter constraints, and translating escape characters (e.g. converting string literal `\t` into physical tab character `\t`).
 - **Core Execution Entrypoint (`Program`)**: Coordinates validation of command line arguments, handles file presence checking, triggers conversion, maps runtime errors to standard error stream (`stderr`), and returns execution status codes.
 - **Stateless JSON Flattener (`JsonFlattener`)**: Recursively processes a hierarchical `JsonElement` structure, generating flat, dot-notated string representation key-value pairs suitable for flat tabular projection.
+- **Stateless CSV Writer (`CsvWriter`)**: Accepts a stream of flattened dictionaries and standardizes them into tabular rows emitted directly to a text writer stream. Handles custom column separators, schema mismatches, and robust character escaping dynamically.
 
 ## Public Interfaces & Signatures
 
@@ -40,16 +41,29 @@ public static class JsonFlattener
 {
     public static System.Collections.Generic.Dictionary<string, string> Flatten(System.Text.Json.JsonElement element, string prefix = "");
 }
+
+public static class CsvWriter
+{
+    public static void Write(
+        System.Collections.Generic.IEnumerable<System.Collections.Generic.Dictionary<string, string>> records,
+        System.Collections.Generic.IEnumerable<string> headers,
+        System.IO.TextWriter targetWriter,
+        char delimiter);
+}
 ```
 
 ## Design Decisions & Patterns
-- **Separation of Concerns**: Program validation and parsing logic are entirely decoupled from CLI routing. This ensures the parsing logic can be thoroughly unit-tested without relying on the physical standard input/output/error streams.
+- **Separation of Concerns**: Program validation and parsing logic are entirely decoupled from CLI routing. This ensures the parsing logic can be thoroughly unit-tested without relying on physical standard input/output/error streams.
 - **Stateless Recursive JSON Flattening**: The flattener is entirely stateless and functional with zero side-effects. It maps deeply nested DOM components to a single-level dictionary of dot-notated string properties.
 - **Bounded Recursion Safeguard**: To prevent `StackOverflowException` vectors when handling complex or deeply-nested payloads, the recursion engine monitors runtime depth. If nesting depth exceeds 100 levels, an `ArgumentException` is immediately thrown.
 - **Tabular Mapping Integrity**:
   - Empty objects (`{}`), empty arrays (`[]`), and null/undefined elements map directly to empty string properties (`""`).
   - Primitive arrays (e.g. `["admin", "user"]`) serialize to compact, standard, non-spaced JSON representation strings inside the output map.
   - Non-primitive arrays (e.g., arrays containing nested JSON objects or child arrays) are structurally unmappable to standard tabular structures and strictly raise an `ArgumentException`.
+- **Stateless O(1) CSV Streaming**: `CsvWriter` handles data writing in a single streaming pass without retaining prior records in RAM. This meets low footprint requirements for large files.
+- **RFC 4180 Escaping Implementation**: Handles field quoting dynamically when the selected delimiter, standard double quotes (`"`), carriage returns (`\r`), or line feeds (`\n`) are detected. Internal double quotes are escaped by doubling them (`""`).
+- **Mismatched / Non-uniform Row Alignment**: When writing records with heterogeneous schemas, missing headers result in empty output cells (e.g., `,` with no outer quotes) to align tabular values with their corresponding columns.
+- **Eager Parameter Validation**: Strict null checks on parameters (records, headers, and writers) throw a direct `ArgumentException` or `ArgumentNullException` immediately, ensuring stream pipelines are never partially written when invoked with invalid arguments.
 - **Exit Code Conventions**: Strictly follows Unix CLI conventions, returning `0` on successful operation and `1` on invalid arguments, parsing failure, or execution exceptions.
 
 ## Non-Functional Invariants
