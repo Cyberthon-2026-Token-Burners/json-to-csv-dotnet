@@ -52,6 +52,7 @@ Apache 2.0 © 2026 The Authors
 <!-- DEPLOYMENT_URL_END -->
 
 <!-- RELEASE_URL_START -->
+**Latest release:** [https://github.com/Cyberthon-2026-Token-Burners/json-to-csv-dotnet/releases/tag/v0.1.0](https://github.com/Cyberthon-2026-Token-Burners/json-to-csv-dotnet/releases/tag/v0.1.0)
 <!-- RELEASE_URL_END -->
 
 ## Documentation
